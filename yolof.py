@@ -21,11 +21,14 @@ ap.add_argument("-y", "--yolo", required=True,
 	help="base path to YOLO directory")
 ap.add_argument("-dl", "--detectlabel", type=str, default='person',
 	help="class of objects to be detected")
+ap.add_argument("-nb", "--nbins", type=int, default=8,
+	help="number of bins of the histogram")
 ap.add_argument("-c", "--confidence", type=float, default=0.5,
 	help="minimum probability to filter weak detections")
 ap.add_argument("-t", "--threshold", type=float, default=0.3,
 	help="threshold when applyong non-maxima suppression")
 args = vars(ap.parse_args())
+
 
 # load the COCO class labels our YOLO model was trained on
 labelsPath = os.path.sep.join([args["yolo"], "coco.names"])
@@ -65,6 +68,9 @@ except:
 
 # First frame
 grabbed, frame_prev = vs.read()
+hist_mtx = np.zeros((1, args["nbins"]))
+center_mtx = np.zeros((1, 2))
+
 # loop over frames from the video file stream
 while True:
 	# read the next frame from the file
@@ -79,7 +85,9 @@ while True:
 	# Detect objects 
 	boxes, confidences, classIDs, idxs, elap_OD = utils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
 	# Compute the optical flow of the most confidenet detected object
-	frame_OF, elap_OF = utils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True)
+	hist, center_xy, frame_OF, elap_OF = utils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
+	hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
+	center_mtx = np.concatenate((center_mtx, center_xy), axis=0)
 	frame_prev = frame
 	# check if the video writer is None
 	if writer is None:
@@ -97,7 +105,10 @@ while True:
 	writer.write(frame_OF)
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
+print("[INFO] saving features ...")
+np.save('features/histogram.npy', hist_mtx)
+np.save('features/center.npy', center_mtx)
 # release the file pointers
-print("[INFO] cleaning up...")
+print("[INFO] cleaning up ...")
 writer.release()
 vs.release()

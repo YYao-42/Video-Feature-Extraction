@@ -4,6 +4,44 @@ import time
 import copy
 
 
+def HOOF(magnitude, angle, nb_bins, fuzzy=False):
+	'''
+	Histogram of (fuzzy) oriented optical flow
+	Inputs:
+	magnitude: magnitude matrix of the optical flow
+	angle: angle matrix of the optical flow
+	nb_bins: number of bins
+	fuzzy: whether include fuzzy matrix https://ieeexplore.ieee.org/document/7971947/
+	Outputs:
+	hist: normalized and weighted orientation histogram with size 1 x nb_bins
+	Note: The normalized histogram does not sum to 1; instead, np.sum(hist)*2pi/nb_bins = 1
+	'''
+	# Flatten mag/ang matrices
+	magnitude = magnitude.flatten()
+	angle = angle.flatten()
+	# Deal with circular continuity
+	for i in range(len(angle)):
+		while (angle[i] < 0 or angle[i] > 2*np.pi):
+			angle[i] = angle[i] - np.sign(angle[i])*2*np.pi
+	# Normalized histogram weighted by magnitudes
+	if fuzzy:
+		x = np.linspace(0, 2*np.pi, nb_bins*2+1)
+		bin_mid = x[[list(range(1, 2*nb_bins, 2))]]
+		nb_bins_dense = nb_bins*5
+		x = np.linspace(0, 2*np.pi, nb_bins_dense*2+1)
+		bin_dense_mid = x[[list(range(1, 2*nb_bins_dense, 2))]]
+		diff_mtx = np.minimum(np.abs(bin_mid-bin_dense_mid.T), 2*np.pi-np.abs(bin_mid-bin_dense_mid.T))
+		sigma = 0.1 # May not be the best value
+		coe_mtx = np.exp(-diff_mtx**2/2/sigma**2) # fuzzy matrix
+		hist_dense, _ = np.histogram(angle, nb_bins_dense, range=(0, 2*np.pi), weights=magnitude, density=False)
+		hist = np.expand_dims(hist_dense, axis=0)@coe_mtx
+		hist = hist/np.sum(hist)/2/np.pi*nb_bins
+	else:
+		hist, _ = np.histogram(angle, nb_bins, range=(0, 2*np.pi), weights=magnitude, density=True)
+		hist = np.expand_dims(hist, axis=0)
+	return hist
+
+
 def object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label='person'):
 	'''
 	Inputs:
@@ -72,7 +110,7 @@ def object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label='pers
 	return boxes, confidences, classIDs, idxs, elap
 
 
-def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True):
+def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8):
 	'''
 	Inputs:
 	frame: current frame
@@ -85,6 +123,8 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 	COLORS: colors assigned to labels
 	oneobject: if only select one object with highest confidence
 	Outputs:
+	hist: orientation histogram
+	center_xy: x and y coordinates of the center of the box
 	frame_OF: modified current frame 
 	elap: processing time
 	'''
@@ -93,11 +133,12 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 	frame_OF = copy.deepcopy(frame)
 	frame_grey = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
 	frame_prev_grey = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
-	idxs = idxs.flatten()
 	if len(idxs)==0:
-		print('WARNING: No object detected! Adding NaN values to the feature array.')
-		# TODO:
+		print('WARNING: No object detected! Adding NaN values to features.')
+		hist = np.full((1, nb_bins), np.nan)
+		center_xy = np.full((1, 2), np.nan)
 	else:
+		idxs = idxs.flatten()
 		if oneobject:
 			idx_maxconfi = np.argmax(np.array(confidences)[idxs])
 			idxs = [idxs[idx_maxconfi]]
@@ -105,6 +146,7 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 			# extract the bounding box coordinates
 			(x, y) = (boxes[i][0], boxes[i][1])
 			(w, h) = (boxes[i][2], boxes[i][3])
+			center_xy = np.expand_dims(np.array([x+w/2, y+h/2]), axis=0)
 			ys = max(0,y)
 			yl = min(y+h, frame.shape[0])
 			xs = max(0, x)
@@ -120,6 +162,7 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 			# flow_vertical = flow_patch[..., 1]
 			# Computes the magnitude and angle of the 2D vectors
 			magnitude, angle = cv.cartToPolar(flow_patch[..., 0], flow_patch[..., 1])
+			hist = HOOF(magnitude, angle, nb_bins, fuzzy=False)
 			hsv = np.zeros_like(frame[ys:yl, xs:xl, :])
 			hsv[..., 0] = angle*180/np.pi/2
 			hsv[..., 1] = 255
@@ -132,4 +175,4 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 			cv.imshow("object detection + optical flow", frame_OF)
 	end = time.time()
 	elap = end - start
-	return frame_OF, elap
+	return hist, center_xy, frame_OF, elap
