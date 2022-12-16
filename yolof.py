@@ -19,6 +19,8 @@ ap.add_argument("-o", "--output", required=True,
 	help="path to output video")
 ap.add_argument("-y", "--yolo", required=True,
 	help="base path to YOLO directory")
+ap.add_argument("-dl", "--detectlabel", type=str, default='person',
+	help="class of objects to be detected")
 ap.add_argument("-c", "--confidence", type=float, default=0.5,
 	help="minimum probability to filter weak detections")
 ap.add_argument("-t", "--threshold", type=float, default=0.3,
@@ -74,26 +76,10 @@ while True:
 	# if the frame dimensions are empty, grab them
 	if W is None or H is None:
 		H, W = frame.shape[:2]
-	boxes, confidences, classIDs, idxs, elap_OD = utils.object_detection_yolo(frame, net, ln, W, H, args)
-	# ensure at least one detection exists
-	if len(idxs) > 0:
-		frame_OF, elap_OF = utils.optical_flow_FB(idxs, boxes, frame, frame_prev)
-		# loop over the indexes we are keeping
-		for i in idxs.flatten():
-			# extract the bounding box coordinates
-			(x, y) = (boxes[i][0], boxes[i][1])
-			(w, h) = (boxes[i][2], boxes[i][3])
-			# draw a bounding box rectangle and label on the frame
-			color = [int(c) for c in COLORS[classIDs[i]]]
-			# cv2.rectangle(frame_OF, (x, y), (x + w, y + h), color, 2)
-			text = "{}: {:.4f}".format(LABELS[classIDs[i]],
-				confidences[i])
-			cv2.putText(frame_OF, text, (x, y - 5),
-				cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-	else:
-		# If no object is detected, e.g., an all-black frame:
-		print('No object!')
-		# TODO: operations in optical flow
+	# Detect objects 
+	boxes, confidences, classIDs, idxs, elap_OD = utils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
+	# Compute the optical flow of the most confidenet detected object
+	frame_OF, elap_OF = utils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True)
 	frame_prev = frame
 	# check if the video writer is None
 	if writer is None:
