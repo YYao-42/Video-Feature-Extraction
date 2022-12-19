@@ -6,10 +6,9 @@
 import numpy as np
 import argparse
 import imutils
-import time
 import cv2
 import os
-import utils
+import feutils
 
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
@@ -83,9 +82,9 @@ while True:
 	if W is None or H is None:
 		H, W = frame.shape[:2]
 	# Detect objects 
-	boxes, confidences, classIDs, idxs, elap_OD = utils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
+	boxes, confidences, classIDs, idxs, elap_OD = feutils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
 	# Compute the optical flow of the most confidenet detected object
-	hist, center_xy, frame_OF, elap_OF = utils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
+	hist, center_xy, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
 	hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
 	center_mtx = np.concatenate((center_mtx, center_xy), axis=0)
 	frame_prev = frame
