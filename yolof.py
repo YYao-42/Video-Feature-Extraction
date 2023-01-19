@@ -16,13 +16,13 @@ ap.add_argument("-i", "--input", required=True,
 	help="path to input video")
 ap.add_argument("-o", "--output", required=True,
 	help="path to output video")
-ap.add_argument("-y", "--yolo", required=True,
+ap.add_argument("-y", "--yolo", default='yolo',
 	help="base path to YOLO directory")
 ap.add_argument("-dl", "--detectlabel", type=str, default='person',
 	help="class of objects to be detected")
 ap.add_argument("-nb", "--nbins", type=int, default=8,
 	help="number of bins of the histogram")
-ap.add_argument("-c", "--confidence", type=float, default=0.5,
+ap.add_argument("-c", "--confidence", type=float, default=0.3,
 	help="minimum probability to filter weak detections")
 ap.add_argument("-t", "--threshold", type=float, default=0.3,
 	help="threshold when applyong non-maxima suppression")
@@ -49,14 +49,15 @@ ln = [ln[i - 1] for i in net.getUnconnectedOutLayers()]
 
 # initialize the video stream, pointer to output video file, and
 # frame dimensions
-vs = cv2.VideoCapture(args["input"])
+video_path = args["input"]
+video_name = video_path.split('/')[-1]
+video_id = video_name.split('_')[0]
+vs = cv2.VideoCapture(video_path)
 writer = None
 (W, H) = (None, None)
 # try to determine the total number of frames in the video file
 try:
-	prop = cv2.cv.CV_CAP_PROP_FRAME_COUNT if imutils.is_cv() \
-		else cv2.CAP_PROP_FRAME_COUNT
-	total = int(vs.get(prop))
+	total = int(vs.get(cv2.CAP_PROP_FRAME_COUNT))
 	print("[INFO] {} total frames in video".format(total))
 # an error occurred while trying to determine the total
 # number of frames in the video file
@@ -69,6 +70,7 @@ except:
 grabbed, frame_prev = vs.read()
 hist_mtx = np.zeros((1, args["nbins"]))
 center_mtx = np.zeros((1, 2))
+mag_mtx = np.zeros((1, 5))
 
 # loop over frames from the video file stream
 while True:
@@ -84,9 +86,10 @@ while True:
 	# Detect objects 
 	boxes, confidences, classIDs, idxs, elap_OD = feutils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
 	# Compute the optical flow of the most confidenet detected object
-	hist, center_xy, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
+	hist, center_xy, mag, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
 	hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
 	center_mtx = np.concatenate((center_mtx, center_xy), axis=0)
+	mag_mtx = np.concatenate((mag_mtx, mag), axis=0)
 	frame_prev = frame
 	# check if the video writer is None
 	if writer is None:
@@ -99,14 +102,16 @@ while True:
 			print("[INFO] Object detection: single frame took {:.4f} seconds".format(elap_OD))
 			print("[INFO] Optical flow: single frame took {:.4f} seconds".format(elap_OF))
 			print("[INFO] estimated total time to finish: {:.4f}".format((elap_OD+elap_OF) * total))
-			# print("[INFO] estimated total time to finish: {:.4f}".format((elap_OD) * total))
 	# write the output frame to disk
 	writer.write(frame_OF)
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
+feats = np.concatenate((hist_mtx, mag_mtx, center_mtx), axis=1)
 print("[INFO] saving features ...")
 np.save('features/histogram.npy', hist_mtx)
 np.save('features/center.npy', center_mtx)
+np.save('features/mag.npy', mag_mtx)
+np.save('features/' + video_id +'_feats.npy', feats)
 # release the file pointers
 print("[INFO] cleaning up ...")
 writer.release()

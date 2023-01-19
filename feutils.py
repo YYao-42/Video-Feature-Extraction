@@ -137,11 +137,13 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 		print('WARNING: No object detected! Adding NaN values to features.')
 		hist = np.full((1, nb_bins), np.nan)
 		center_xy = np.full((1, 2), np.nan)
+		mag = np.full((1, 5), np.nan)
 	else:
 		idxs = idxs.flatten()
 		if oneobject:
 			idx_maxconfi = np.argmax(np.array(confidences)[idxs])
 			idxs = [idxs[idx_maxconfi]]
+		# TODO: save features for multiobjects
 		for i in idxs:
 			# extract the bounding box coordinates
 			(x, y) = (boxes[i][0], boxes[i][1])
@@ -158,10 +160,24 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 			except:
 				print('WARNING: empty patches!')
 				break
-			# flow_horizontal = flow_patch[..., 0]
-			# flow_vertical = flow_patch[..., 1]
+			flow_horizontal = flow_patch[..., 0]
+			flow_vertical = flow_patch[..., 1]
 			# Computes the magnitude and angle of the 2D vectors
-			magnitude, angle = cv.cartToPolar(flow_patch[..., 0], flow_patch[..., 1])
+			# DON'T TRUST cv.cartToPolar
+			# magnitude, angle = cv.cartToPolar(flow_horizontal, flow_vertical, angleInDegrees=False)
+			magnitude = np.absolute(flow_horizontal+1j*flow_vertical)
+			angle = np.angle(flow_horizontal+1j*flow_vertical)
+			if magnitude.mean() > 1e200:
+				print("ABNORMAL!")
+			mag = []
+			mag.append([
+				magnitude.mean(), # avg magnitude
+				flow_horizontal[flow_horizontal >= 0].mean(),  # up
+				flow_horizontal[flow_horizontal <= 0].mean(),  # down
+				flow_vertical[flow_vertical <= 0].mean(),  # left
+				flow_vertical[flow_vertical >= 0].mean()  # right
+			])
+			mag = np.asarray(mag)
 			hist = HOOF(magnitude, angle, nb_bins, fuzzy=False)
 			hsv = np.zeros_like(frame[ys:yl, xs:xl, :])
 			hsv[..., 0] = angle*180/np.pi/2
@@ -175,4 +191,4 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 			cv.imshow("object detection + optical flow", frame_OF)
 	end = time.time()
 	elap = end - start
-	return hist, center_xy, frame_OF, elap
+	return hist, center_xy, mag, frame_OF, elap
