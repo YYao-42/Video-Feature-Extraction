@@ -10,8 +10,10 @@ ap.add_argument("-i", "--input", required=True,
 	help="path to input video folder")
 ap.add_argument("-o", "--output", required=True,
 	help="path to output video folder")
-ap.add_argument("-fps", "--fps", type=int,
+ap.add_argument("-fps", "--fps", type=int, required=True, 
 	help="fps of videos")
+ap.add_argument('-co', '--concatonly', action='store_true',
+    help='Include if boxes are inserted already and we only need to concatenate different clips')
 ap.add_argument("-bint", "--blkint", type=int, default=30,
 	help="blink interval")
 ap.add_argument("-bdur", "--blkdur", type=float, default=0.5,
@@ -20,11 +22,14 @@ ap.add_argument("-ext", "--extperc", type=float, default=0.1,
 	help="W and H of frames are extended by ext%")
 ap.add_argument("-box", "--boxperc", type=float, default=0.1,
 	help="side length of the flickering box as the percentage of the original H of the frame")
-ap.add_argument("-fdur", "--fadedur", type=int, default=3,
+ap.add_argument("-fdur", "--fadedur", type=int, default=4,
 	help="duration of cross fading")
 args = vars(ap.parse_args())
 
-video_list = os.listdir(args["input"])
+input_folder = args["input"]
+if not input_folder.endswith('/'):
+    input_folder = input_folder + '/'
+video_list = os.listdir(input_folder)
 fps = args["fps"]
 blink_interval = args["blkint"]
 blink_duration = args["blkdur"]
@@ -32,12 +37,24 @@ ext_percent = args["extperc"]
 box_percent = args["boxperc"]
 fade_duration = args["fadedur"]
 
-print("[INFO] Inserting flickering box into videos ...")
-for video in video_list:
-    print('currently working on: ' + video)
-    video_path = args["input"] + video
-    write_path = args["output"] + video[:-4] + '_box.avi'
-    H_extend, W_extend, box_len = vputils.add_flickering_box(video_path, write_path, fps, blink_interval, blink_duration, ext_percent, box_percent)
+if args["concatonly"]:
+    # If flickering boxes have been inserted
+    print("[INFO] Flickering box has been inserted")
+    video_path = input_folder + video_list[0]
+    cap_ori = cv.VideoCapture(video_path)
+    ret, frame = cap_ori.read()
+    H, W = frame.shape[:2]
+    H_extend = int(H*(1+ext_percent))
+    W_extend = int(W*(1+ext_percent))
+    box_len = int(H*box_percent)
+    cap_ori.release()
+else:
+    print("[INFO] Inserting flickering box into videos ...")
+    for video in video_list:
+        print('currently working on: ' + video)
+        video_path = input_folder + video
+        write_path = args["output"] + video[:-4] + '_box.avi'
+        H_extend, W_extend, box_len = vputils.add_flickering_box(video_path, write_path, fps, blink_interval, blink_duration, ext_percent, box_percent)
 
 video_box_list = [video for video in os.listdir(args["output"]) if video.endswith('_box.avi')]
 write_path = args["output"] + 'exp.avi'
