@@ -18,6 +18,8 @@ ap.add_argument("-o", "--output", required=True,
 	help="path to output video")
 ap.add_argument("-y", "--yolo", default='yolo',
 	help="base path to YOLO directory")
+ap.add_argument('-optic', '--opticalonly', action='store_true',
+    help='Include if use optical only (i.e., without object detection)')
 ap.add_argument("-dl", "--detectlabel", type=str, default='person',
 	help="class of objects to be detected")
 ap.add_argument("-nb", "--nbins", type=int, default=8,
@@ -83,10 +85,15 @@ while True:
 	# if the frame dimensions are empty, grab them
 	if W is None or H is None:
 		H, W = frame.shape[:2]
-	# Detect objects 
-	boxes, confidences, classIDs, idxs, elap_OD = feutils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
-	# Compute the optical flow of the most confidenet detected object
-	hist, center_xy, mag, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
+	if args["opticalonly"]:
+		elap_OD = 0
+		hist, center_xy, mag, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, nb_bins=8)
+	else:
+		print("[INFO] Feature extraction: Object detection + Optical flow")
+		# Detect objects 
+		boxes, confidences, classIDs, idxs, elap_OD = feutils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
+		# Compute the optical flow of the most confidenet detected object
+		hist, center_xy, mag, frame_OF, elap_OF = feutils.optical_flow_box(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
 	hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
 	center_mtx = np.concatenate((center_mtx, center_xy), axis=0)
 	mag_mtx = np.concatenate((mag_mtx, mag), axis=0)
@@ -111,7 +118,11 @@ print("[INFO] saving features ...")
 np.save('features/histogram.npy', hist_mtx)
 np.save('features/center.npy', center_mtx)
 np.save('features/mag.npy', mag_mtx)
-np.save('features/' + video_id +'_feats.npy', feats)
+if args["opticalonly"]:
+	save_path = 'features/' + video_id +'_flow.npy'
+else:
+	save_path = 'features/' + video_id +'_feats.npy'
+np.save(save_path, feats)
 # release the file pointers
 print("[INFO] cleaning up ...")
 writer.release()

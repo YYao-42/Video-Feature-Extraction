@@ -4,14 +4,16 @@ import time
 import copy
 
 
-def HOOF(magnitude, angle, nb_bins, fuzzy=False):
+def HOOF(magnitude, angle, nb_bins, fuzzy=False, normalize=False):
 	'''
 	Histogram of (fuzzy) oriented optical flow
 	Inputs:
 	magnitude: magnitude matrix of the optical flow
 	angle: angle matrix of the optical flow
 	nb_bins: number of bins
-	fuzzy: whether include fuzzy matrix https://ieeexplore.ieee.org/document/7971947/
+	fuzzy: whether include fuzzy matrix https://ieeexplore.ieee.org/document/7971947/. Default is False.
+	nomalize: whether normalize the histogram to be a pdf. Default is False such that we don't lose information (sum of the magnitude), 
+	          which gives us more freedom on post-processing (like smoothing).
 	Outputs:
 	hist: normalized and weighted orientation histogram with size 1 x nb_bins
 	Note: The normalized histogram does not sum to 1; instead, np.sum(hist)*2pi/nb_bins = 1
@@ -37,7 +39,7 @@ def HOOF(magnitude, angle, nb_bins, fuzzy=False):
 		hist = np.expand_dims(hist_dense, axis=0)@coe_mtx
 		hist = hist/np.sum(hist)/2/np.pi*nb_bins
 	else:
-		hist, _ = np.histogram(angle, nb_bins, range=(0, 2*np.pi), weights=magnitude, density=True)
+		hist, _ = np.histogram(angle, nb_bins, range=(0, 2*np.pi), weights=magnitude, density=normalize)
 		hist = np.expand_dims(hist, axis=0)
 	return hist
 
@@ -110,7 +112,54 @@ def object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label='pers
 	return boxes, confidences, classIDs, idxs, elap
 
 
-def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8):
+def optical_flow_FB(frame, frame_prev, nb_bins=8):
+	'''
+	Inputs:
+	frame: current frame
+	frame_prev: previous frame
+	nb_bins: number of bins (for Histogram of Oriented Optical Flow)
+	Outputs:
+	hist: orientation histogram
+	center_xy: NaN (Keep here just to have the same number of outputs as optical_flow_box)
+	mag: average magnitude (all direction/left/right/up/down) 
+	frame_OF: modified current frame 
+	elap: processing time
+	'''
+	start = time.time()
+	cv.imshow("input", frame)
+	frame_grey = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+	frame_prev_grey = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
+	flow = cv.calcOpticalFlowFarneback(frame_prev_grey, frame_grey, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+	flow_horizontal = flow[..., 0]
+	flow_vertical = flow[..., 1]
+	# Computes the magnitude and angle of the 2D vectors
+	# DON'T TRUST cv.cartToPolar
+	# magnitude, angle = cv.cartToPolar(flow_horizontal, flow_vertical, angleInDegrees=False)
+	magnitude = np.absolute(flow_horizontal+1j*flow_vertical)
+	angle = np.angle(flow_horizontal+1j*flow_vertical)
+	mag = []
+	mag.append([
+		magnitude.mean(), # avg magnitude
+		flow_horizontal[flow_horizontal >= 0].mean(),  # up
+		flow_horizontal[flow_horizontal <= 0].mean(),  # down
+		flow_vertical[flow_vertical <= 0].mean(),  # left
+		flow_vertical[flow_vertical >= 0].mean()  # right
+	])
+	mag = np.asarray(mag)
+	hist = HOOF(magnitude, angle, nb_bins, fuzzy=False, normalize=False)
+	center_xy = np.full((1, 2), np.nan)
+	hsv = np.zeros_like(frame)
+	hsv[..., 0] = angle*180/np.pi/2
+	hsv[..., 1] = 255
+	hsv[..., 2] = cv.normalize(magnitude, None, 0, 255, cv.NORM_MINMAX)
+	frame_OF = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
+	cv.imshow("object detection + optical flow", frame_OF)
+	end = time.time()
+	elap = end - start
+	return hist, center_xy, mag, frame_OF, elap
+
+
+def optical_flow_box(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8):
 	'''
 	Inputs:
 	frame: current frame
@@ -125,6 +174,7 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 	Outputs:
 	hist: orientation histogram
 	center_xy: x and y coordinates of the center of the box
+	mag: average magnitude (all direction/left/right/up/down) 
 	frame_OF: modified current frame 
 	elap: processing time
 	'''
@@ -178,7 +228,7 @@ def optical_flow_FB(frame, frame_prev, boxes, confidences, classIDs, idxs, LABEL
 				flow_vertical[flow_vertical >= 0].mean()  # right
 			])
 			mag = np.asarray(mag)
-			hist = HOOF(magnitude, angle, nb_bins, fuzzy=False)
+			hist = HOOF(magnitude, angle, nb_bins, fuzzy=False, normalize=False)
 			hsv = np.zeros_like(frame[ys:yl, xs:xl, :])
 			hsv[..., 0] = angle*180/np.pi/2
 			hsv[..., 1] = 255
