@@ -20,6 +20,10 @@ ap.add_argument("-y", "--yolo", default='yolo',
 	help="base path to YOLO directory")
 ap.add_argument('-optic', '--opticalonly', action='store_true',
     help='Include if use optical only (i.e., without object detection)')
+ap.add_argument('-exp', '--expand', action='store_true',
+    help='Include if expand the bounding box')
+ap.add_argument('-GPU', '--GPU', action='store_true',
+    help='Include if use GPU acceleration')
 ap.add_argument("-dl", "--detectlabel", type=str, default='person',
 	help="class of objects to be detected")
 ap.add_argument("-nb", "--nbins", type=int, default=8,
@@ -45,6 +49,9 @@ configPath = os.path.sep.join([args["yolo"], "yolov4.cfg"])
 # and determine only the *output* layer names that we need from YOLO
 print("[INFO] loading YOLO from disk...")
 net = cv2.dnn.readNetFromDarknet(configPath, weightsPath)
+if args["GPU"]:
+	net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+	net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
 ln = net.getLayerNames() # layer names
 # Only include layers that are not connected by follow up layers
 ln = [ln[i - 1] for i in net.getUnconnectedOutLayers()]
@@ -71,7 +78,7 @@ except:
 # First frame
 grabbed, frame_prev = vs.read()
 hist_mtx = np.zeros((1, args["nbins"]))
-center_mtx = np.zeros((1, 2))
+box_mtx = np.zeros((1, 4))
 mag_mtx = np.zeros((1, 5))
 
 # loop over frames from the video file stream
@@ -87,15 +94,14 @@ while True:
 		H, W = frame.shape[:2]
 	if args["opticalonly"]:
 		elap_OD = 0
-		hist, center_xy, mag, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, nb_bins=8)
+		hist, box_info, mag, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, nb_bins=8, GPU=args["GPU"])
 	else:
-		print("[INFO] Feature extraction: Object detection + Optical flow")
 		# Detect objects 
 		boxes, confidences, classIDs, idxs, elap_OD = feutils.object_detection_yolo(frame, net, ln, W, H, args, LABELS, detect_label=args["detectlabel"])
 		# Compute the optical flow of the most confidenet detected object
-		hist, center_xy, mag, frame_OF, elap_OF = feutils.optical_flow_box(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8)
+		hist, box_info, mag, frame_OF, elap_OF = feutils.optical_flow_box(frame, frame_prev, boxes, confidences, classIDs, idxs, LABELS, COLORS, oneobject=True, nb_bins=8, expand=args["expand"])
 	hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
-	center_mtx = np.concatenate((center_mtx, center_xy), axis=0)
+	box_mtx = np.concatenate((box_mtx, box_info), axis=0)
 	mag_mtx = np.concatenate((mag_mtx, mag), axis=0)
 	frame_prev = frame
 	# check if the video writer is None
@@ -113,15 +119,18 @@ while True:
 	writer.write(frame_OF)
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
-feats = np.concatenate((hist_mtx, mag_mtx, center_mtx), axis=1)
+feats = np.concatenate((hist_mtx, mag_mtx, box_mtx), axis=1)
 print("[INFO] saving features ...")
 np.save('features/histogram.npy', hist_mtx)
-np.save('features/center.npy', center_mtx)
+np.save('features/box.npy', box_mtx)
 np.save('features/mag.npy', mag_mtx)
 if args["opticalonly"]:
 	save_path = 'features/' + video_id +'_flow.npy'
 else:
-	save_path = 'features/' + video_id +'_feats.npy'
+	if args["expand"]:
+		save_path = 'features/' + video_id +'_exp.npy'
+	else:
+		save_path = 'features/' + video_id +'_feats.npy'
 np.save(save_path, feats)
 # release the file pointers
 print("[INFO] cleaning up ...")
