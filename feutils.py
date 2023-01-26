@@ -5,6 +5,23 @@ import copy
 import math
 
 
+def expand_box(box, mask, frameW, frameH, ratio=2):
+	mask_frame = (np.zeros((frameH, frameW))).astype(bool)
+	(x, y) = (box[0], box[1])
+	(w, h) = (box[2], box[3])
+	mask_frame[y:y+h, x:x+w] = mask
+	center_x = x + w/2
+	center_y = y + h/2
+	w_new = int(math.sqrt(ratio)*w)
+	h_new = int(math.sqrt(ratio)*h)
+	start_x = max(0, math.floor(center_x-w_new/2))
+	start_y = max(0, math.floor(center_y-h_new/2))
+	end_x = min(frameW, math.ceil(center_x+w_new/2))
+	end_y = min(frameH, math.ceil(center_y+h_new/2))
+	mask_expand = mask_frame[start_y:end_y, start_x:end_x]
+	return start_x, start_y, end_x, end_y, mask_expand
+	
+
 def HOOF(magnitude, angle, nb_bins, mask=None, fuzzy=False, normalize=False):
 	'''
 	Histogram of (fuzzy) oriented optical flow
@@ -365,17 +382,9 @@ def optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LA
 		idxs = [np.argmax(np.array(confidences))]
 		# TODO: save features for multiobjects
 		for i in idxs:
-			mask = masks[i]
-			# extract the bounding box coordinates
-			(x, y) = (boxes[i][0], boxes[i][1])
-			(w, h) = (boxes[i][2], boxes[i][3])
-			center_x = x + w/2
-			center_y = y + h/2 
-			box_info = np.expand_dims(np.array([center_x, center_y, w, h]), axis=0)
-			ys = max(0, y)
-			yl = min(y+h, frame.shape[0])
-			xs = max(0, x)
-			xl = min(x+w, frame.shape[1])
+			# Attention: mask need to be modified as well
+			xs, ys, xl, yl, mask = expand_box(boxes[i], masks[i], frame.shape[1], frame.shape[0], ratio=2)
+			box_info = np.expand_dims(np.array([(xs+xl)/2, (ys+yl)/2, int(xl-xs), int(yl-ys)]), axis=0)
 			patch = frame_grey[ys:yl, xs:xl]
 			patch_prev = frame_prev_grey[ys:yl, xs:xl]
 			try:
@@ -410,7 +419,7 @@ def optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LA
 			frame_OF[ys:yl, xs:xl, :] = bgr
 			text = "{}: {:.4f}".format(LABELS[classIDs[i]],	confidences[i])
 			color = [int(c) for c in COLORS[classIDs[i]]]
-			cv.putText(frame_OF, text, (x, y - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+			cv.putText(frame_OF, text, (xs, ys - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 			blended = ((0.2 * np.array(color)) + (0.8 * bgr[mask])).astype("uint8")
 			frame_OF[ys:yl, xs:xl, :][mask] = blended
 			cv.imshow("object detection + optical flow", frame_OF)
