@@ -1,6 +1,7 @@
 /images
 /videos
 /yolo
+/mask-rcnn
 /features
 /__pycache__
 /.vscode
