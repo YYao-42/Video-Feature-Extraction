@@ -25,11 +25,9 @@ ap.add_argument("-dl", "--detectlabel", type=str, default='person',
 	help="class of objects to be detected")
 ap.add_argument("-nb", "--nbins", type=int, default=8,
 	help="number of bins of the histogram")
-ap.add_argument("-v", "--visualize", type=int, default=0,
-	help="whether or not we are going to visualize each instance")
 ap.add_argument("-c", "--confidence", type=float, default=0.3,
 	help="minimum probability to filter weak detections")
-ap.add_argument("-t", "--threshold", type=float, default=0.2,
+ap.add_argument("-t", "--threshold", type=float, default=0.1,
 	help="minimum threshold for pixel-wise mask segmentation")
 args = vars(ap.parse_args())
 
@@ -40,10 +38,12 @@ LABELS = open(labelsPath).read().strip().split("\n")
 
 # load the set of colors that will be used when visualizing a given
 # instance segmentation
-colorsPath = os.path.sep.join([args["mask_rcnn"], "colors.txt"])
-COLORS = open(colorsPath).read().strip().split("\n")
-COLORS = [np.array(c.split(",")).astype("int") for c in COLORS]
-COLORS = np.array(COLORS, dtype="uint8")
+# colorsPath = os.path.sep.join([args["mask_rcnn"], "colors.txt"])
+# COLORS = open(colorsPath).read().strip().split("\n")
+# COLORS = [np.array(c.split(",")).astype("int") for c in COLORS]
+# COLORS = np.array(COLORS, dtype="uint8")
+COLORS = np.random.randint(0, 255, size=(len(LABELS), 3),
+	dtype="uint8")
 
 # derive the paths to the Mask R-CNN weights and model configuration
 weightsPath = os.path.sep.join([args["mask_rcnn"],
