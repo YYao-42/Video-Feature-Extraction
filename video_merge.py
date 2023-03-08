@@ -1,3 +1,15 @@
+'''
+This script is used to insert flickering boxes into videos and merge them together with cross-fading effect.
+Put the videos to be merged in a folder and pass its path to --input.
+The fps of the videos is required to be specified by --fps. [can be modified to read from the videos]
+The output videos will be saved in the folder specified by --output.
+
+The script can be easily adapted to inserting boxes only or concatenating videos only.
+For the latter case, make sure that the videos have the same fps and the same resolution.
+
+Author: yuanyuan.yao@kuleuven.be
+'''
+
 import numpy as np
 import cv2 as cv
 import os

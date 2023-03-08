@@ -1,3 +1,9 @@
+'''
+This script contains functions needed for video_merge.py
+
+Author: yuanyuan.yao@kuleuven.be
+'''
+
 import numpy as np
 import cv2 as cv
 
@@ -13,6 +19,30 @@ def extend_frame(H_extend, W_extend, frame, black, box_len):
 
 
 def add_flickering_box(video_path, write_path, fps, blink_interval, blink_duration, ext_percent=0.1, box_percent=0.1):
+    '''
+    Add a flickering box to the top right corner of the video.
+
+    We would like to keep the content of the video intact, so we add a black strip on the top of each frame.
+    To keep the ratio of the video, we also add a strip on the right (see function extend_frame).
+    The box will be on the top right corner of the extended frame, and the size of the box is a percentage of the height.
+    Every blink_interval seconds, the box will be inserted for blink_duration seconds.
+
+    Inputs:
+        video_path: path to the video
+        write_path: path to the output video
+        fps: fps of the video
+        blink_interval: interval between two consecutive flickering boxes
+        blink_duration: duration of the flickering box
+        ext_percent: the height and width will be extended by this percentage (see description above)
+        box_percent: the size of the box is this percentage of the height
+    Outputs:
+        H_extend: height of the extended frame
+        W_extend: width of the extended frame
+        box_len: length of the square box
+    
+    Note: the output video will be saved to write_path after execution.
+    
+    '''
     # initialize the video stream
     cap = cv.VideoCapture(video_path)
     # ret = a boolean return value from getting the frame, frame = the first frame in the entire video sequence
@@ -45,11 +75,28 @@ def add_flickering_box(video_path, write_path, fps, blink_interval, blink_durati
 
 
 def cross_fading(last_frame, first_frame, duration, fps, box_len):
+    '''
+    Add a cross-fading effect between the last frame of the last video and the first frame of the next video.
+    Cross-fading is basically blending two frames as a linear combination.
+    Check https://docs.opencv.org/3.4/d5/dc4/tutorial_adding_images.html for more information.
+
+    Inputs:
+        last_frame: the last frame of the last video
+        first_frame: the first frame of the next video
+        duration: duration of the cross-fading effect
+        fps: fps of the video
+        box_len: length of the square box
+
+    Outputs:
+        frame_list: a list of frames, each frame is the result of blending two frames
+    '''
     frame_list = []
     n_points = duration*fps
     percentage = np.linspace(0, 1, n_points)
     for perc in percentage:
+        # blend two images
         frame = cv.addWeighted(last_frame, 1-perc, first_frame, perc, 0)
-        frame[:box_len, -box_len:, :] = 169
+        # a gray box occurs on the top right corner, serving as a sign of cross-fading
+        frame[:box_len, -box_len:, :] = 169 
         frame_list.append(frame)
     return frame_list
