@@ -5,6 +5,34 @@ import copy
 import math
 
 
+def get_tempcontrast(video_path):
+	vs = cv.VideoCapture(video_path)
+	# First frame
+	grabbed, frame_prev = vs.read()
+	tempcontr_mtx = np.zeros((1, 2))
+	# loop over frames from the video file stream
+	while True:
+		# read the next frame from the file
+		grabbed, frame = vs.read()
+		# if the frame was not grabbed, then we have reached the end
+		# of the stream
+		if not grabbed:
+			break
+		# transform to grayscale
+		frame_prev_gray = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
+		frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+		# change type to float
+		frame_prev_gray = frame_prev_gray.astype(float)
+		frame_gray = frame_gray.astype(float)
+		mutempcontr = np.mean(frame_gray-frame_prev_gray)
+		muSqtempcontr = np.mean((frame_gray-frame_prev_gray)**2)
+		tempcontr_vec = np.expand_dims(np.array([mutempcontr, muSqtempcontr]), axis=0)
+		tempcontr_mtx = np.concatenate((tempcontr_mtx, tempcontr_vec), axis=0)
+		frame_prev = frame
+	vs.release()
+	return tempcontr_mtx
+
+
 def expand_box(box, mask, frameW, frameH, ratio=2):
 	mask_frame = (np.zeros((frameH, frameW))).astype(bool)
 	(x, y) = (box[0], box[1])
@@ -421,7 +449,7 @@ def optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LA
 				text = "{}: {:.4f}".format(LABELS[classIDs[i]],	confidences[i])
 				color = [int(c) for c in COLORS[classIDs[i]]]
 				cv.putText(frame_OF, text, (xs, ys - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-				blended = ((0.2 * np.array(color)) + (0.8 * bgr[mask])).astype("uint8")
+				blended = ((0.4 * np.array(color)) + (0.6 * bgr[mask])).astype("uint8")
 				frame_OF[ys:yl, xs:xl, :][mask] = blended
 				cv.imshow("object detection + optical flow", frame_OF)
 	end = time.time()
