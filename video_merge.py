@@ -86,7 +86,7 @@ for video_box in video_box_list:
     video_box_path = args["output"] + video_box
     cap = cv.VideoCapture(video_box_path)
     ret, first_frame = cap.read()
-    if last_frame is not None:
+    if (last_frame is not None) and (first_frame is not None):
         frame_list = vputils.cross_fading(last_frame, first_frame, fade_duration, fps, box_len)
         for frame in frame_list:
             writer.write(frame)
