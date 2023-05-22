@@ -9,7 +9,7 @@ def get_tempcontrast(video_path):
 	vs = cv.VideoCapture(video_path)
 	# First frame
 	grabbed, frame_prev = vs.read()
-	tempcontr_mtx = np.zeros((1, 2))
+	tempcontr_mtx = np.zeros((1, 3))
 	# loop over frames from the video file stream
 	while True:
 		# read the next frame from the file
@@ -25,8 +25,9 @@ def get_tempcontrast(video_path):
 		frame_prev_gray = frame_prev_gray.astype(float)
 		frame_gray = frame_gray.astype(float)
 		mutempcontr = np.mean(frame_gray-frame_prev_gray)
+		abstempcontr = np.mean(np.abs(frame_gray-frame_prev_gray))
 		muSqtempcontr = np.mean((frame_gray-frame_prev_gray)**2)
-		tempcontr_vec = np.expand_dims(np.array([mutempcontr, muSqtempcontr]), axis=0)
+		tempcontr_vec = np.expand_dims(np.array([abstempcontr, muSqtempcontr, mutempcontr]), axis=0)
 		tempcontr_mtx = np.concatenate((tempcontr_mtx, tempcontr_vec), axis=0)
 		frame_prev = frame
 	vs.release()
@@ -230,6 +231,39 @@ def object_seg_maskrcnn(frame, net, args, LABELS, detect_label='person'):
 	end = time.time()
 	elap = end-start
 	return boxes, confidences, classIDs, masks, elap
+
+
+def face_detection(frame, net, args):
+	start = time.time()
+	(h, w) = frame.shape[:2]
+	blob = cv.dnn.blobFromImage(cv.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
+	# pass the blob through the network and obtain the detections and
+	# predictions
+	print("[INFO] computing object detections...")
+	net.setInput(blob)
+	detections = net.forward()
+	# initialize our lists of detected bounding boxes and confidences
+	boxes = []
+	confidences = []
+	# loop over the detections
+	for i in range(0, detections.shape[2]):
+		# extract the confidence (i.e., probability) associated with the
+		# prediction
+		confidence = detections[0, 0, i, 2]
+		# filter out weak detections by ensuring the `confidence` is
+		# greater than the minimum confidence
+		if confidence > args["confidence"]:
+			# compute the (x, y)-coordinates of the bounding box for the
+			# object
+			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+			(startX, startY, endX, endY) = box.astype("int")
+			boxW = endX - startX
+			boxH = endY - startY
+			boxes.append([startX, startY, boxW, boxH])
+			confidences.append(float(confidence))
+	end = time.time()
+	elap = end-start
+	return boxes, confidences, elap
 
 
 def optical_flow_FB(frame, frame_prev, nb_bins=8, GPU=False):
@@ -455,3 +489,88 @@ def optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LA
 	end = time.time()
 	elap = end - start
 	return hist, box_info, mag, frame_OF, elap
+
+
+def optical_flow_face(frame, frame_prev, boxes, confidences, oneobject=True, nb_bins=8, expand=True):
+	'''
+	Inputs:
+	frame: current frame
+	frame_prev: previous frame
+	boxes: boxes of the detected objects
+	confidences: confidences of detected objects 
+	oneobject: if only select one object with highest confidence
+	Outputs:
+	hist: orientation histogram
+	box_info: x and y coordinates of the center of the box, width and height of the box
+	mag: average magnitude (all direction/left/right/up/down) 
+	frame_FF: modified current frame 
+	elap: processing time
+	'''
+	start = time.time()
+	cv.imshow("input", frame)
+	frame_FF = copy.deepcopy(frame)
+	frame_grey = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+	frame_prev_grey = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
+	if len(boxes)==0:
+		print('WARNING: No face detected! Adding NaN values to features.')
+		hist = np.full((1, nb_bins), np.nan)
+		box_info = np.full((1, 4), np.nan)
+		mag = np.full((1, 5), np.nan)
+	else:
+		if oneobject:
+			idxs = [np.argmax(np.array(confidences))]
+			# TODO: save features for multiobjects
+		for i in idxs:
+			# extract the bounding box coordinates
+			(x, y) = (boxes[i][0], boxes[i][1])
+			(w, h) = (boxes[i][2], boxes[i][3])
+			center_x = x + w/2
+			center_y = y + h/2 
+			if expand:
+				w = int(math.sqrt(3)*w)
+				h = int(math.sqrt(3)*h)
+				x = int(center_x-w/2)
+				y = int(center_y-h/2)
+			box_info = np.expand_dims(np.array([center_x, center_y, w, h]), axis=0)
+			ys = max(0,y)
+			yl = min(y+h, frame.shape[0])
+			xs = max(0, x)
+			xl = min(x+w, frame.shape[1])
+			patch = frame_grey[ys:yl, xs:xl]
+			patch_prev = frame_prev_grey[ys:yl, xs:xl]
+			try:
+				flow_patch = cv.calcOpticalFlowFarneback(patch_prev, patch, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+			except:
+				print('WARNING: empty patches!')
+				break
+			flow_horizontal = flow_patch[..., 0]
+			flow_vertical = flow_patch[..., 1]
+			# Computes the magnitude and angle of the 2D vectors
+			# DON'T TRUST cv.cartToPolar
+			# magnitude, angle = cv.cartToPolar(flow_horizontal, flow_vertical, angleInDegrees=False)
+			magnitude = np.absolute(flow_horizontal+1j*flow_vertical)
+			angle = np.angle(flow_horizontal+1j*flow_vertical)
+			if magnitude.mean() > 1e200:
+				print("ABNORMAL!")
+			mag = []
+			mag.append([
+				magnitude.mean(), # avg magnitude
+				flow_horizontal[flow_horizontal >= 0].mean(),  # up
+				flow_horizontal[flow_horizontal <= 0].mean(),  # down
+				flow_vertical[flow_vertical <= 0].mean(),  # left
+				flow_vertical[flow_vertical >= 0].mean()  # right
+			])
+			mag = np.asarray(mag)
+			hist = HOOF(magnitude, angle, nb_bins, fuzzy=False, normalize=False)
+			hsv = np.zeros_like(frame[ys:yl, xs:xl, :])
+			hsv[..., 0] = angle*180/np.pi/2
+			hsv[..., 1] = 255
+			hsv[..., 2] = cv.normalize(magnitude, None, 0, 255, cv.NORM_MINMAX)
+			bgr = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
+			frame_FF[ys:yl, xs:xl, :] = bgr
+			text = "Confidence: {:.4f}".format(confidences[i])
+			cv.putText(frame_FF, text, (x, y - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+			cv.imshow("Face detection + optical flow", frame_FF)
+	end = time.time()
+	elap = end - start
+	return hist, box_info, mag, frame_FF, elap
