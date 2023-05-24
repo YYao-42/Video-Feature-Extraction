@@ -8,6 +8,7 @@ import imutils
 import cv2
 import os
 import feutils
+import pickle
 
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
@@ -78,11 +79,15 @@ except:
 	print("[INFO] no approx. completion time can be provided")
 	total = -1
 
+feature_list = []
+
 # First frame
 grabbed, frame_prev = vs.read()
 hist_mtx = np.zeros((1, args["nbins"]))
 box_mtx = np.zeros((1, 4))
 mag_mtx = np.zeros((1, 5))
+feat_1st = np.zeros((1, args["nbins"]+4+5))
+feature_list.append(feat_1st)
 
 # loop over frames from the video file stream
 while True:
@@ -98,14 +103,15 @@ while True:
 	if args["opticalonly"]:
 		elap_OS = 0
 		hist, box_info, mag, frame_OF, elap_OF = feutils.optical_flow_FB(frame, frame_prev, nb_bins=8, GPU=args["GPU"])
+		hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
+		box_mtx = np.concatenate((box_mtx, box_info), axis=0)
+		mag_mtx = np.concatenate((mag_mtx, mag), axis=0)
 	else:
 		# Detect objects 
 		boxes, confidences, classIDs, masks, elap_OS = feutils.object_seg_maskrcnn(frame, net, args, LABELS, detect_label=args["detectlabel"])
 		# Compute the optical flow of the most confidenet detected object
-		hist, box_info, mag, frame_OF, elap_OF = feutils.optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LABELS, COLORS, oneobject=True, nb_bins=8)
-	hist_mtx = np.concatenate((hist_mtx, hist), axis=0)
-	box_mtx = np.concatenate((box_mtx, box_info), axis=0)
-	mag_mtx = np.concatenate((mag_mtx, mag), axis=0)
+		feature_boxes, frame_OF, elap_OF = feutils.optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LABELS, COLORS, oneobject=False, nb_bins=8)
+		feature_list.append(feature_boxes)
 	frame_prev = frame
 	# check if the video writer is None
 	if writer is None:
@@ -122,16 +128,16 @@ while True:
 	writer.write(frame_OF)
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
-feats = np.concatenate((hist_mtx, mag_mtx, box_mtx), axis=1)
 print("[INFO] saving features ...")
-np.save('features/histogram.npy', hist_mtx)
-np.save('features/box.npy', box_mtx)
-np.save('features/mag.npy', mag_mtx)
 if args["opticalonly"]:
 	save_path = 'features/' + video_id +'_flow.npy'
+	feats = np.concatenate((hist_mtx, mag_mtx, box_mtx), axis=1)
+	np.save(save_path, feats)
 else:
-	save_path = 'features/' + video_id +'_mask.npy'
-np.save(save_path, feats)
+	save_path = 'features/' + video_id +'_mask.pkl'
+	open_file = open(save_path, "wb")
+	pickle.dump(feature_list, open_file)
+	open_file.close()
 # release the file pointers
 print("[INFO] cleaning up ...")
 writer.release()

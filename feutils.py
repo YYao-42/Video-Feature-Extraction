@@ -435,60 +435,67 @@ def optical_flow_mask(frame, frame_prev, boxes, confidences, classIDs, masks, LA
 	frame_OF = copy.deepcopy(frame)
 	frame_grey = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
 	frame_prev_grey = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
+	feature_boxes = []
 	if len(boxes)==0:
 		print('WARNING: No object detected! Adding NaN values to features.')
-		hist = np.full((1, nb_bins), np.nan)
-		box_info = np.full((1, 4), np.nan)
-		mag = np.full((1, 5), np.nan)
+		# hist = np.full((1, nb_bins), np.nan)
+		# box_info = np.full((1, 4), np.nan)
+		# mag = np.full((1, 5), np.nan)
+		feature_frame = np.full((1, nb_bins+4+5), np.nan)
 	else:
 		if oneobject:
 			idxs = [np.argmax(np.array(confidences))]
-			# TODO: save features for multiobjects
-			for i in idxs:
-				# Attention: mask need to be modified as well
-				xs, ys, xl, yl, mask = expand_box(boxes[i], masks[i], frame.shape[1], frame.shape[0], ratio=ratio)
-				box_info = np.expand_dims(np.array([(xs+xl)/2, (ys+yl)/2, int(xl-xs), int(yl-ys)]), axis=0)
-				patch = frame_grey[ys:yl, xs:xl]
-				patch_prev = frame_prev_grey[ys:yl, xs:xl]
-				try:
-					flow_patch = cv.calcOpticalFlowFarneback(patch_prev, patch, None, 0.5, 3, 15, 3, 5, 1.2, 0)
-				except:
-					print('WARNING: empty patches!')
-					break
-				flow_horizontal = flow_patch[..., 0]
-				flow_vertical = flow_patch[..., 1]
-				# Computes the magnitude and angle of the 2D vectors
-				# DON'T TRUST cv.cartToPolar
-				# magnitude, angle = cv.cartToPolar(flow_horizontal, flow_vertical, angleInDegrees=False)
-				magnitude = np.absolute(flow_horizontal+1j*flow_vertical)
-				angle = np.angle(flow_horizontal+1j*flow_vertical)
-				if magnitude.mean() > 1e200:
-					print("ABNORMAL!")
-				mag = []
-				mag.append([
-					magnitude[mask].mean(), # avg magnitude
-					flow_horizontal[np.logical_and(flow_horizontal>=0, mask)].mean(),  # up
-					flow_horizontal[np.logical_and(flow_horizontal<=0, mask)].mean(),  # down
-					flow_vertical[np.logical_and(flow_vertical<=0, mask)].mean(),  # left
-					flow_vertical[np.logical_and(flow_vertical>=0, mask)].mean()  # right
-				])
-				mag = np.asarray(mag)
-				hist = HOOF(magnitude, angle, nb_bins, mask=mask, fuzzy=False, normalize=False)
-				hsv = np.zeros_like(frame[ys:yl, xs:xl, :])
-				hsv[..., 0] = angle*180/np.pi/2
-				hsv[..., 1] = 255
-				hsv[..., 2] = cv.normalize(magnitude, None, 0, 255, cv.NORM_MINMAX)
-				bgr = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
-				frame_OF[ys:yl, xs:xl, :] = bgr
-				text = "{}: {:.4f}".format(LABELS[classIDs[i]],	confidences[i])
-				color = [int(c) for c in COLORS[classIDs[i]]]
-				cv.putText(frame_OF, text, (xs, ys - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-				blended = ((0.4 * np.array(color)) + (0.6 * bgr[mask])).astype("uint8")
-				frame_OF[ys:yl, xs:xl, :][mask] = blended
-				cv.imshow("object detection + optical flow", frame_OF)
+		elif len(boxes) > 3: # keep the top 3 objects with highest confidence
+			idxs = np.argsort(np.array(confidences))[-3:]
+		else:
+			idxs = np.argsort(np.array(confidences))
+		for i in idxs:
+			# Attention: mask need to be modified as well
+			xs, ys, xl, yl, mask = expand_box(boxes[i], masks[i], frame.shape[1], frame.shape[0], ratio=ratio)
+			box_info = np.expand_dims(np.array([(xs+xl)/2, (ys+yl)/2, int(xl-xs), int(yl-ys)]), axis=0)
+			patch = frame_grey[ys:yl, xs:xl]
+			patch_prev = frame_prev_grey[ys:yl, xs:xl]
+			try:
+				flow_patch = cv.calcOpticalFlowFarneback(patch_prev, patch, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+			except:
+				print('WARNING: empty patches!')
+				break
+			flow_horizontal = flow_patch[..., 0]
+			flow_vertical = flow_patch[..., 1]
+			# Computes the magnitude and angle of the 2D vectors
+			# DON'T TRUST cv.cartToPolar
+			# magnitude, angle = cv.cartToPolar(flow_horizontal, flow_vertical, angleInDegrees=False)
+			magnitude = np.absolute(flow_horizontal+1j*flow_vertical)
+			angle = np.angle(flow_horizontal+1j*flow_vertical)
+			if magnitude.mean() > 1e200:
+				print("ABNORMAL!")
+			mag = []
+			mag.append([
+				magnitude[mask].mean(), # avg magnitude
+				flow_horizontal[np.logical_and(flow_horizontal>=0, mask)].mean(),  # up
+				flow_horizontal[np.logical_and(flow_horizontal<=0, mask)].mean(),  # down
+				flow_vertical[np.logical_and(flow_vertical<=0, mask)].mean(),  # left
+				flow_vertical[np.logical_and(flow_vertical>=0, mask)].mean()  # right
+			])
+			mag = np.asarray(mag)
+			hist = HOOF(magnitude, angle, nb_bins, mask=mask, fuzzy=False, normalize=False)
+			feature_boxes.append(np.concatenate((hist, mag, box_info), axis=1))
+			hsv = np.zeros_like(frame[ys:yl, xs:xl, :])
+			hsv[..., 0] = angle*180/np.pi/2
+			hsv[..., 1] = 255
+			hsv[..., 2] = cv.normalize(magnitude, None, 0, 255, cv.NORM_MINMAX)
+			bgr = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
+			frame_OF[ys:yl, xs:xl, :] = bgr
+			text = "{}: {:.4f}".format(LABELS[classIDs[i]],	confidences[i])
+			color = [int(c) for c in COLORS[classIDs[i]]]
+			cv.putText(frame_OF, text, (xs, ys - 5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+			blended = ((0.4 * np.array(color)) + (0.6 * bgr[mask])).astype("uint8")
+			frame_OF[ys:yl, xs:xl, :][mask] = blended
+		cv.imshow("object detection + optical flow", frame_OF)
+		feature_frame = np.concatenate(tuple(feature_boxes), axis=0)
 	end = time.time()
 	elap = end - start
-	return hist, box_info, mag, frame_OF, elap
+	return feature_frame, frame_OF, elap
 
 
 def optical_flow_face(frame, frame_prev, boxes, confidences, oneobject=True, nb_bins=8, expand=True):
