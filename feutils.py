@@ -5,6 +5,17 @@ import copy
 import math
 
 
+def cal_tempcontrast(frame_gray, frame_prev_gray):
+	# change type to float
+	frame_prev_gray = frame_prev_gray.astype(float)
+	frame_gray = frame_gray.astype(float)
+	mutempcontr = np.mean(frame_gray-frame_prev_gray)
+	abstempcontr = np.mean(np.abs(frame_gray-frame_prev_gray))
+	muSqtempcontr = np.mean((frame_gray-frame_prev_gray)**2)
+	tempcontr_vec = np.expand_dims(np.array([abstempcontr, muSqtempcontr, mutempcontr]), axis=0)
+	return tempcontr_vec
+
+
 def get_tempcontrast(video_path):
 	vs = cv.VideoCapture(video_path)
 	# First frame
@@ -21,17 +32,43 @@ def get_tempcontrast(video_path):
 		# transform to grayscale
 		frame_prev_gray = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
 		frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-		# change type to float
-		frame_prev_gray = frame_prev_gray.astype(float)
-		frame_gray = frame_gray.astype(float)
-		mutempcontr = np.mean(frame_gray-frame_prev_gray)
-		abstempcontr = np.mean(np.abs(frame_gray-frame_prev_gray))
-		muSqtempcontr = np.mean((frame_gray-frame_prev_gray)**2)
-		tempcontr_vec = np.expand_dims(np.array([abstempcontr, muSqtempcontr, mutempcontr]), axis=0)
+		tempcontr_vec = cal_tempcontrast(frame_gray, frame_prev_gray)
 		tempcontr_mtx = np.concatenate((tempcontr_mtx, tempcontr_vec), axis=0)
 		frame_prev = frame
 	vs.release()
 	return tempcontr_mtx
+
+
+def temp_contrast_box(frame, frame_prev, boxes, confidences, masks, oneobject=True, ratio=2):
+	start = time.time()
+	frame_grey = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+	frame_prev_grey = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
+	feature_boxes = []
+	if len(boxes)==0:
+		print('WARNING: No object detected! Adding NaN values to features.')
+		feature_frame = np.full((1, 3), np.nan)
+	else:
+		if oneobject:
+			idxs = [np.argmax(np.array(confidences))]
+		elif len(boxes) > 3: # keep the top 3 objects with highest confidence
+			idxs = np.argsort(np.array(confidences))[-3:]
+		else:
+			idxs = np.argsort(np.array(confidences))
+		for i in idxs:
+			xs, ys, xl, yl, mask = expand_box(boxes[i], masks[i], frame.shape[1], frame.shape[0], ratio=ratio)
+			# box version instead of mask version
+			patch = frame_grey[ys:yl, xs:xl]
+			patch_prev = frame_prev_grey[ys:yl, xs:xl]
+			try:
+				tempcontr_vec = cal_tempcontrast(patch, patch_prev)
+			except:
+				print('WARNING: empty patches!')
+				break
+			feature_boxes.append(tempcontr_vec)
+		feature_frame = np.concatenate(tuple(feature_boxes), axis=0)
+	end = time.time()
+	elap = end - start
+	return feature_frame, elap
 
 
 def expand_box(box, mask, frameW, frameH, ratio=2):
