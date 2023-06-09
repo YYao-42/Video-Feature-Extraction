@@ -5,7 +5,11 @@ import copy
 import math
 
 
-def cal_tempcontrast(frame_gray, frame_prev_gray):
+def cal_tempcontrast(frame_gray, frame_prev_gray, mask=None):
+	# if mask is not a None object, then apply mask to the frame:
+	if mask is not None:
+		frame_gray = frame_gray[mask]
+		frame_prev_gray = frame_prev_gray[mask]
 	# change type to float
 	frame_prev_gray = frame_prev_gray.astype(float)
 	frame_gray = frame_gray.astype(float)
@@ -39,7 +43,7 @@ def get_tempcontrast(video_path):
 	return tempcontr_mtx
 
 
-def temp_contrast_box(frame, frame_prev, boxes, confidences, masks, oneobject=True, ratio=2):
+def obj_temp_contrast(frame, frame_prev, boxes, confidences, masks, oneobject=True, ratio=2, ifmask=False):
 	start = time.time()
 	frame_grey = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
 	frame_prev_grey = cv.cvtColor(frame_prev, cv.COLOR_BGR2GRAY)
@@ -56,11 +60,13 @@ def temp_contrast_box(frame, frame_prev, boxes, confidences, masks, oneobject=Tr
 			idxs = np.argsort(np.array(confidences))
 		for i in idxs:
 			xs, ys, xl, yl, mask = expand_box(boxes[i], masks[i], frame.shape[1], frame.shape[0], ratio=ratio)
-			# box version instead of mask version
 			patch = frame_grey[ys:yl, xs:xl]
 			patch_prev = frame_prev_grey[ys:yl, xs:xl]
 			try:
-				tempcontr_vec = cal_tempcontrast(patch, patch_prev)
+				if ifmask:
+					tempcontr_vec = cal_tempcontrast(patch, patch_prev, mask)
+				else:
+					tempcontr_vec = cal_tempcontrast(patch, patch_prev)
 			except:
 				print('WARNING: empty patches!')
 				break

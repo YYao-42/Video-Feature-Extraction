@@ -12,6 +12,8 @@ ap.add_argument("-i", "--input", required=True,
     help="path to input video folder")
 ap.add_argument("-m", "--mask-rcnn", default='mask-rcnn',
 	help="base path to mask-rcnn directory")
+ap.add_argument('-msk', '--mask', action='store_true',
+    help='Use mask version instead of box version')
 ap.add_argument('-tc', '--tconly', action='store_true',
     help='Include if use temporal contrast only (i.e., without object detection)')
 ap.add_argument("-dl", "--detectlabel", type=str, default='person',
@@ -66,10 +68,13 @@ for video in video_list:
                 break
             # Detect objects 
             boxes, confidences, classIDs, masks, elap_OS = feutils.object_seg_maskrcnn(frame, net, args, LABELS, detect_label=args["detectlabel"])
-            feature_boxes, elap_TC = feutils.temp_contrast_box(frame, frame_prev, boxes, confidences, masks, oneobject=True, ratio=2)
+            feature_boxes, elap_TC = feutils.obj_temp_contrast(frame, frame_prev, boxes, confidences, masks, oneobject=True, ratio=2, ifmask=args["mask"])
             feature_list.append(feature_boxes)
             frame_prev = frame
-        save_path = 'features/' + video_id +'_tcbox.pkl'
+        if args["mask"]:
+            save_path = 'features/' + video_id +'_tcmask.pkl'
+        else:
+            save_path = 'features/' + video_id +'_tcbox.pkl'
         open_file = open(save_path, "wb")
         pickle.dump(feature_list, open_file)
         open_file.close()
