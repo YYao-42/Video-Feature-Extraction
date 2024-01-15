@@ -129,6 +129,9 @@ while True:
 	if cv2.waitKey(1) & 0xFF == ord('q'):
 		break
 print("[INFO] saving features ...")
+# if folder features does not exist, create it
+if not os.path.exists('features'):
+	os.makedirs('features')
 if args["opticalonly"]:
 	save_path = 'features/' + video_id +'_flow.npy'
 	feats = np.concatenate((hist_mtx, mag_mtx, box_mtx), axis=1)

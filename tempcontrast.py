@@ -43,6 +43,9 @@ if not args["input"].endswith('/'):
     args["input"] = args["input"] + '/'
 # list videos in the input folder
 video_list = [f for f in os.listdir(args["input"]) if f.endswith('.avi') or f.endswith('.mp4')] # list all video files
+# if folder features does not exist, create it
+if not os.path.exists('features'):
+	os.makedirs('features')
 for video in video_list:
     print("[INFO] Working on " + video + " ...")
     video_id = video[:2]
